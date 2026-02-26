@@ -1810,3 +1810,676 @@
 .canvas-area.select-mode canvas {
   cursor: default;
 }
+
+/* ============================================================
+   SKRIBBLE GAME MODE
+   ============================================================ */
+
+/* --- Idle/Pre-game Bar --- */
+.skribble-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 0.8rem 1.5rem;
+  border-radius: 4px;
+  background: rgba(6, 12, 24, 0.95);
+  border: 1px solid rgba(57, 255, 20, 0.25);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 0 30px rgba(57, 255, 20, 0.08), inset 0 0 30px rgba(57, 255, 20, 0.02);
+}
+
+.skribble-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #39ff14, transparent);
+}
+
+.skribble-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.skribble-icon {
+  font-size: 1.6rem;
+  filter: drop-shadow(0 0 8px rgba(57, 255, 20, 0.5));
+}
+
+.skribble-title {
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #39ff14;
+  text-shadow: 0 0 12px rgba(57, 255, 20, 0.5);
+}
+
+.skribble-wait {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.skribble-start-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.skribble-time-label {
+  font-family: var(--font-heading);
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.skribble-time-select {
+  padding: 0.3rem 0.5rem;
+  border-radius: 2px;
+  border: 1px solid rgba(57, 255, 20, 0.2);
+  background: rgba(57, 255, 20, 0.05);
+  color: #39ff14;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.skribble-time-select option {
+  background: #0a0e1a;
+  color: #e0f7ff;
+}
+
+.skribble-start-btn {
+  background: linear-gradient(135deg, rgba(57, 255, 20, 0.15), rgba(57, 255, 20, 0.05)) !important;
+  border: 1px solid rgba(57, 255, 20, 0.3) !important;
+  color: #39ff14 !important;
+  font-family: var(--font-heading) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.1em !important;
+  text-shadow: 0 0 10px rgba(57, 255, 20, 0.4);
+}
+
+.skribble-player-warning {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #ef4444;
+  font-weight: 600;
+  animation: urgency-pulse 0.8s ease-in-out infinite alternate;
+}
+
+.skribble-player-ready {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #39ff14;
+  font-weight: 600;
+}
+
+/* --- Full Overlay (picking, round-end, game-end) --- */
+.skribble-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 5, 8, 0.92);
+  backdrop-filter: blur(12px);
+}
+
+.skribble-overlay-content {
+  max-width: 500px;
+  width: 90%;
+  padding: 2rem 2.5rem;
+  border-radius: 6px;
+  background: rgba(8, 16, 32, 0.95);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  box-shadow:
+    0 0 60px rgba(0, 240, 255, 0.08),
+    inset 0 0 30px rgba(0, 240, 255, 0.02);
+  text-align: center;
+}
+
+.skribble-round-badge {
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 1.2rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 2px;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  display: inline-block;
+}
+
+/* --- Word Picking --- */
+.skribble-pick-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.skribble-pick-title {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #39ff14;
+  text-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
+  letter-spacing: 0.08em;
+}
+
+.skribble-pick-subtitle {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.skribble-word-choices {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.skribble-word-btn {
+  padding: 0.7rem 1.4rem;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--accent);
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: all 0.2s ease;
+}
+
+.skribble-word-btn:hover {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  color: #fff;
+}
+
+.skribble-auto-pick-note {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.skribble-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* --- Drawing Phase HUD --- */
+.skribble-hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1.2rem;
+  background: rgba(6, 12, 24, 0.92);
+  border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+  backdrop-filter: blur(16px);
+}
+
+.skribble-hud::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #39ff14, var(--accent), transparent);
+  opacity: 0.5;
+}
+
+.skribble-hud-left,
+.skribble-hud-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.skribble-hud-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.skribble-round-chip {
+  padding: 0.2rem 0.6rem;
+  border-radius: 2px;
+  background: rgba(191, 90, 242, 0.1);
+  border: 1px solid rgba(191, 90, 242, 0.25);
+  color: var(--neon-purple);
+  font-family: var(--font-heading);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.skribble-drawer-chip {
+  padding: 0.2rem 0.6rem;
+  border-radius: 2px;
+  background: rgba(57, 255, 20, 0.08);
+  border: 1px solid rgba(57, 255, 20, 0.2);
+  color: #39ff14;
+  font-family: var(--font-heading);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.skribble-secret-word,
+.skribble-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.skribble-word-label {
+  font-family: var(--font-heading);
+  font-size: 0.55rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.skribble-word-text {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #39ff14;
+  text-shadow: 0 0 12px rgba(57, 255, 20, 0.5);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.skribble-hint-text {
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+}
+
+/* --- Timer --- */
+.skribble-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 70px;
+}
+
+.skribble-timer-value {
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+}
+
+.skribble-timer.urgent .skribble-timer-value {
+  color: #ef4444;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  animation: urgency-pulse 0.5s ease-in-out infinite alternate;
+}
+
+.skribble-timer-bar {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 240, 255, 0.1);
+  overflow: hidden;
+}
+
+.skribble-timer-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #39ff14);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+}
+
+.skribble-timer.urgent .skribble-timer-fill {
+  background: linear-gradient(90deg, #ef4444, #ff6b6b);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
+/* --- Correct Guess Flash --- */
+.skribble-correct-flash {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 200;
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  font-weight: 800;
+  color: #39ff14;
+  text-shadow: 0 0 30px rgba(57, 255, 20, 0.6), 0 0 60px rgba(57, 255, 20, 0.3);
+  pointer-events: none;
+}
+
+/* --- Guessed List --- */
+.skribble-guessed-list {
+  position: absolute;
+  top: 55px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.skribble-guessed-chip {
+  padding: 0.2rem 0.5rem;
+  border-radius: 2px;
+  background: rgba(57, 255, 20, 0.08);
+  border: 1px solid rgba(57, 255, 20, 0.2);
+  color: #39ff14;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* --- Guess Form --- */
+.skribble-guess-form {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.8rem;
+  background: rgba(6, 12, 24, 0.92);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  border-radius: 4px;
+  backdrop-filter: blur(12px);
+}
+
+.skribble-guess-input {
+  width: 250px;
+  padding: 0.5rem 0.8rem;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: rgba(0, 240, 255, 0.03);
+  color: var(--neon-green);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.skribble-guess-input::placeholder {
+  color: rgba(57, 255, 20, 0.3);
+}
+
+.skribble-guess-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
+}
+
+/* --- Already Guessed --- */
+.skribble-already-guessed {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 0.6rem 1.2rem;
+  border-radius: 4px;
+  background: rgba(57, 255, 20, 0.08);
+  border: 1px solid rgba(57, 255, 20, 0.2);
+  color: #39ff14;
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.3);
+}
+
+/* --- Mini Scoreboard (during drawing) --- */
+.skribble-scores-mini {
+  position: absolute;
+  bottom: 56px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.skribble-score-chip {
+  padding: 0.2rem 0.5rem;
+  border-radius: 2px;
+  background: rgba(8, 16, 32, 0.9);
+  border: 1px solid rgba(0, 240, 255, 0.1);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.skribble-score-chip.you {
+  color: var(--accent);
+  border-color: rgba(0, 240, 255, 0.25);
+  background: rgba(0, 240, 255, 0.06);
+}
+
+.skribble-score-chip.leader {
+  color: #ffb800;
+  border-color: rgba(255, 184, 0, 0.25);
+  background: rgba(255, 184, 0, 0.06);
+}
+
+/* --- Round End --- */
+.skribble-reveal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.skribble-reveal-word {
+  font-family: var(--font-heading);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #39ff14;
+  text-shadow: 0 0 20px rgba(57, 255, 20, 0.5);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.skribble-round-scores {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.skribble-round-score-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 2px;
+  background: rgba(0, 240, 255, 0.03);
+  border: 1px solid rgba(0, 240, 255, 0.08);
+}
+
+.skribble-round-score-row.first {
+  border-color: rgba(255, 184, 0, 0.3);
+  background: rgba(255, 184, 0, 0.06);
+}
+
+.skribble-round-score-row .rank {
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--accent);
+  min-width: 30px;
+}
+
+.skribble-round-score-row.first .rank {
+  color: #ffb800;
+}
+
+.skribble-round-score-row .name {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink);
+}
+
+.skribble-round-score-row .pts {
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--neon-purple);
+}
+
+.skribble-next-hint {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* --- Game End --- */
+.skribble-overlay.game-end .skribble-overlay-content {
+  border-color: rgba(255, 184, 0, 0.3);
+  box-shadow:
+    0 0 60px rgba(255, 184, 0, 0.1),
+    inset 0 0 30px rgba(255, 184, 0, 0.02);
+}
+
+.skribble-game-end-title {
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #ffb800;
+  text-shadow: 0 0 20px rgba(255, 184, 0, 0.5);
+  letter-spacing: 0.1em;
+  margin-bottom: 1rem;
+}
+
+.skribble-winner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  padding: 0.8rem 1.2rem;
+  border-radius: 4px;
+  background: rgba(255, 184, 0, 0.06);
+  border: 1px solid rgba(255, 184, 0, 0.2);
+}
+
+.skribble-winner-crown {
+  font-size: 2rem;
+  filter: drop-shadow(0 0 10px rgba(255, 184, 0, 0.5));
+}
+
+.skribble-winner-name {
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #ffb800;
+  text-shadow: 0 0 10px rgba(255, 184, 0, 0.4);
+}
+
+.skribble-winner-score {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.skribble-final-scores {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.skribble-final-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 2px;
+  background: rgba(0, 240, 255, 0.03);
+  border: 1px solid rgba(0, 240, 255, 0.08);
+}
+
+.skribble-final-row.gold {
+  border-color: rgba(255, 184, 0, 0.3);
+  background: rgba(255, 184, 0, 0.06);
+}
+
+.skribble-final-row.silver {
+  border-color: rgba(192, 192, 192, 0.3);
+  background: rgba(192, 192, 192, 0.04);
+}
+
+.skribble-final-row.bronze {
+  border-color: rgba(205, 127, 50, 0.3);
+  background: rgba(205, 127, 50, 0.04);
+}
+
+.skribble-final-row .rank {
+  font-size: 1.2rem;
+  min-width: 30px;
+}
+
+.skribble-final-row .name {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.skribble-final-row .pts {
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--neon-purple);
+}
+
+@keyframes urgency-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.6; }
+}

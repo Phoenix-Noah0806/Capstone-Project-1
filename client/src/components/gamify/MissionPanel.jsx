@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "../../context/AuthContext";
 
@@ -15,9 +15,16 @@ const missionTypes = [
   { id: "puzzle", label: "Artifact Rush", desc: "Reconstruct fragmented data as a squad" }
 ];
 
-const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit, isHost, timeLeft }) => {
+const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit, isHost, timeLeft, roomMissionType }) => {
   const { user } = useAuth();
-  const [selectedType, setSelectedType] = useState("free");
+  // Lock to the room's mission type if it's a specific mode (blind/puzzle), otherwise allow free selection
+  const isLocked = roomMissionType && roomMissionType !== "free";
+  const [selectedType, setSelectedType] = useState(isLocked ? roomMissionType : "free");
+
+  useEffect(() => {
+    if (isLocked) setSelectedType(roomMissionType);
+  }, [roomMissionType, isLocked]);
+
   const percent = Math.min(mission?.progress ?? 0, 100);
   const isActive = mission?.status === "active";
   const isUrgent = timeLeft <= 15 && isActive;
@@ -34,19 +41,21 @@ const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit,
     });
   };
 
+  const lockedType = isLocked ? missionTypes.find((t) => t.id === roomMissionType) : null;
+
   return (
     <div className="mission-panel glass">
       <div className="mission-header">
         <div>
-          <div className="label">Mission Briefing ({mission?.type || "free"})</div>
-          <h3>{mission?.name || "Awaiting deployment"}</h3>
+          <div className="label">Mission Briefing ({mission?.type || selectedType})</div>
+          <h3>{mission?.name || (lockedType ? lockedType.label : "Awaiting deployment")}</h3>
         </div>
         <span className="status-pill" style={{ background: statusColors[mission?.status || "idle"] }}>
           {mission?.status || "standby"}
         </span>
       </div>
 
-      <p className="mission-desc">{mission?.description || "Deploy a mission to initiate tactical operations."}</p>
+      <p className="mission-desc">{mission?.description || (lockedType ? lockedType.desc : "Deploy a mission to initiate tactical operations.")}</p>
 
       {isActive && (
         <div className="mission-specific">
@@ -92,7 +101,8 @@ const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit,
       <div className="mission-actions">
         {isHost ? (
           <>
-            {!isActive && (
+            {/* Only show type selector for "free" rooms — specific modes are locked */}
+            {!isActive && !isLocked && (
               <select
                 className="mission-type-select"
                 value={selectedType}
@@ -106,7 +116,7 @@ const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit,
               </select>
             )}
             <button className="btn primary" onClick={handleStart} disabled={isActive}>
-              {isActive ? "Op Active" : "Deploy Mission"}
+              {isActive ? "Op Active" : `Deploy ${lockedType ? lockedType.label : "Mission"}`}
             </button>
             {isActive && (
               <>
@@ -130,3 +140,4 @@ const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit,
 };
 
 export default MissionPanel;
+

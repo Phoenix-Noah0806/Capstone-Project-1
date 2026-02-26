@@ -5,7 +5,38 @@ import { verifySocketToken } from "../middleware/auth.js";
 const roomUsers = new Map();
 const roomScreenSharer = new Map();
 const roomVotes = new Map(); // roomId -> Map<optionId, count>
+const roomSkribbleTimers = new Map(); // roomId -> timer id
 
+const WORD_BANK = [
+  "cat", "dog", "sun", "moon", "tree", "house", "car", "fish", "bird", "star",
+  "hat", "book", "rain", "fire", "boat", "cake", "ball", "shoe", "lamp", "bell",
+  "apple", "chair", "clock", "cloud", "crown", "dance", "earth", "fairy", "ghost",
+  "heart", "juice", "knife", "lemon", "music", "ocean", "paint", "queen", "river",
+  "sheep", "tiger", "watch", "angel", "beach", "brush", "candy", "dream", "eagle",
+  "flame", "grape", "horse", "igloo", "jelly", "koala", "light", "mango", "nurse",
+  "olive", "piano", "robot", "snake", "train", "umbrella", "violin", "whale",
+  "airplane", "balloon", "battery", "bicycle", "blanket", "bowling", "bridge",
+  "butterfly", "cactus", "camera", "candle", "castle", "cherry", "chicken",
+  "compass", "cookie", "diamond", "dolphin", "dragon", "feather", "flower",
+  "football", "garden", "giraffe", "glasses", "guitar", "hammer", "helmet",
+  "icecream", "island", "jacket", "kangaroo", "kitchen", "ladder", "laptop",
+  "library", "lizard", "magnet", "mermaid", "monkey", "mushroom", "necklace",
+  "octopus", "pancake", "parrot", "penguin", "pirate", "pizza", "popcorn",
+  "pumpkin", "pyramid", "rainbow", "reindeer", "rocket", "sailboat", "sandwich",
+  "scarecrow", "skeleton", "snowman", "spider", "suitcase", "sunflower",
+  "surfboard", "sword", "telescope", "tornado", "treasure", "unicorn",
+  "volcano", "waterfall", "windmill", "wizard", "zombie", "astronaut",
+  "backpack", "campfire", "dinosaur", "elevator", "fireworks", "hamburger",
+  "headphones", "lighthouse", "microphone", "parachute", "skateboard",
+  "snowflake", "submarine", "trampoline", "watermelon"
+];
+
+const pickRandomWords = (count = 3) => {
+  const shuffled = [...WORD_BANK].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+};
+
+const makeWordHint = (word) => word.replace(/[a-zA-Z]/g, "_ ").trim();
 const getRoomUsers = (roomId) => {
   if (!roomUsers.has(roomId)) {
     roomUsers.set(roomId, new Map());
@@ -87,6 +118,7 @@ export const initSocket = (httpServer, corsOrigin) => {
         roomId,
         role,
         hostId: room.host,
+        missionType: room.missionType || "free",
         strokes: room.strokes,
         redoStack: room.redoStack,
         messages: room.messages,
@@ -98,7 +130,20 @@ export const initSocket = (httpServer, corsOrigin) => {
         mission: room.mission,
         roles: room.roles,
         scoreboard: room.scoreboard,
-        missionHistory: room.missionHistory
+        missionHistory: room.missionHistory,
+        skribble: room.skribble ? {
+          status: room.skribble.status,
+          wordHint: room.skribble.wordHint,
+          drawerId: room.skribble.drawerId,
+          drawerName: room.skribble.drawerName,
+          round: room.skribble.round,
+          totalRounds: room.skribble.totalRounds,
+          roundTimeSeconds: room.skribble.roundTimeSeconds,
+          roundStartedAt: room.skribble.roundStartedAt,
+          guessedBy: room.skribble.guessedBy,
+          scores: room.skribble.scores,
+          lastWord: room.skribble.lastWord
+        } : undefined
       });
 
       socket.to(roomId).emit("room:users", users);
@@ -485,6 +530,294 @@ export const initSocket = (httpServer, corsOrigin) => {
       });
     });
 
+    /* ========== SKRIBBLE GAME EVENTS ========== */
+
+    const startSkribbleRound = async (roomId, io) => {
+      const room = await Room.findOne({ roomId });
+      if (!room || !room.skribble || room.skribble.status === "game-end") return;
+
+      const nextRound = (room.skribble.round || 0) + 1;
+      if (nextRound > room.skribble.totalRounds) {
+        // Game over
+        room.skribble.status = "game-end";
+        room.skribble.lastWord = room.skribble.currentWord || "";
+        room.skribble.currentWord = "";
+        room.markModified("skribble");
+        await room.save();
+
+        const timer = roomSkribbleTimers.get(roomId);
+        if (timer) { clearTimeout(timer); roomSkribbleTimers.delete(roomId); }
+
+        io.to(roomId).emit("skribble:game-end", {
+          scores: room.skribble.scores,
+          lastWord: room.skribble.lastWord
+        });
+        return;
+      }
+
+      // Pick next drawer from playerOrder
+      const drawerIdx = (nextRound - 1) % room.skribble.playerOrder.length;
+      const drawerId = room.skribble.playerOrder[drawerIdx];
+      const usersMap = getRoomUsers(roomId);
+      const drawerUser = usersMap.get(drawerId);
+      const drawerName = drawerUser?.name || "Unknown";
+      const drawerSocketId = drawerUser?.socketId;
+
+      const wordChoices = pickRandomWords(3);
+
+      room.skribble.round = nextRound;
+      room.skribble.drawerId = drawerId;
+      room.skribble.drawerName = drawerName;
+      room.skribble.status = "picking";
+      room.skribble.currentWord = "";
+      room.skribble.wordHint = "";
+      room.skribble.guessedBy = [];
+      room.skribble.lastWord = "";
+      room.markModified("skribble");
+      await room.save();
+
+      // Notify room of new round (without word)
+      io.to(roomId).emit("skribble:new-round", {
+        round: nextRound,
+        totalRounds: room.skribble.totalRounds,
+        drawerId,
+        drawerName,
+        status: "picking"
+      });
+
+      // Send word choices to drawer only
+      if (drawerSocketId) {
+        io.to(drawerSocketId).emit("skribble:pick-word", { wordChoices });
+      }
+
+      // Auto-pick after 15 seconds if drawer doesn't pick
+      const autoPickTimer = setTimeout(async () => {
+        const r = await Room.findOne({ roomId });
+        if (r && r.skribble.status === "picking" && r.skribble.round === nextRound) {
+          const autoWord = wordChoices[0];
+          r.skribble.currentWord = autoWord;
+          r.skribble.wordHint = makeWordHint(autoWord);
+          r.skribble.status = "drawing";
+          r.skribble.roundStartedAt = new Date();
+          r.markModified("skribble");
+          await r.save();
+
+          io.to(roomId).emit("skribble:drawing-start", {
+            wordHint: r.skribble.wordHint,
+            drawerId,
+            drawerName,
+            roundTimeSeconds: r.skribble.roundTimeSeconds
+          });
+
+          if (drawerSocketId) {
+            io.to(drawerSocketId).emit("skribble:your-word", { word: autoWord });
+          }
+
+          // Clear canvas for new round
+          io.to(roomId).emit("board:clear");
+
+          // Set round end timer
+          const roundEndTimer = setTimeout(() => {
+            endSkribbleRound(roomId, io);
+          }, r.skribble.roundTimeSeconds * 1000);
+          roomSkribbleTimers.set(roomId, roundEndTimer);
+        }
+      }, 15000);
+      roomSkribbleTimers.set(roomId, autoPickTimer);
+    };
+
+    const endSkribbleRound = async (roomId, io) => {
+      const timer = roomSkribbleTimers.get(roomId);
+      if (timer) { clearTimeout(timer); roomSkribbleTimers.delete(roomId); }
+
+      const room = await Room.findOne({ roomId });
+      if (!room || !room.skribble || room.skribble.status !== "drawing") return;
+
+      room.skribble.status = "round-end";
+      room.skribble.lastWord = room.skribble.currentWord;
+      room.markModified("skribble");
+      await room.save();
+
+      io.to(roomId).emit("skribble:round-end", {
+        word: room.skribble.currentWord,
+        scores: room.skribble.scores,
+        guessedBy: room.skribble.guessedBy,
+        round: room.skribble.round,
+        totalRounds: room.skribble.totalRounds
+      });
+
+      // Auto-start next round after 5 seconds
+      const nextTimer = setTimeout(() => {
+        startSkribbleRound(roomId, io);
+      }, 5000);
+      roomSkribbleTimers.set(roomId, nextTimer);
+    };
+
+    socket.on("skribble:start", async ({ roomId, roundTimeSeconds, roundCount }) => {
+      if (!roomId) return;
+      const room = await Room.findOne({ roomId });
+      if (!room) return;
+      if (room.host?.toString() !== socket.data.user.id) {
+        socket.emit("skribble:error", { message: "Only host can start Skribble" });
+        return;
+      }
+
+      const usersMap = getRoomUsers(roomId);
+      const userIds = Array.from(usersMap.keys());
+      if (userIds.length < 2) {
+        socket.emit("skribble:error", { message: "Need at least 2 players to start Skribble!" });
+        return;
+      }
+
+      // Shuffle player order
+      const shuffled = [...userIds].sort(() => Math.random() - 0.5);
+      // Use selected round count (default 5), drawers cycle through players
+      const totalRounds = roundCount || 5;
+
+      room.skribble = {
+        status: "idle",
+        currentWord: "",
+        wordHint: "",
+        drawerId: "",
+        drawerName: "",
+        round: 0,
+        totalRounds,
+        roundTimeSeconds: roundTimeSeconds || 60,
+        roundStartedAt: null,
+        guessedBy: [],
+        playerOrder: shuffled,
+        scores: shuffled.map((uid) => ({ userId: uid, name: usersMap.get(uid)?.name || "?", points: 0 })),
+        lastWord: ""
+      };
+
+      // Also set mission active
+      room.mission.status = "active";
+      room.mission.type = "skribble";
+      room.mission.name = "Skribble";
+      room.mission.description = "Draw & guess words — highest score wins!";
+      room.mission.startedAt = new Date();
+
+      // Clear any existing strokes
+      room.strokes = [];
+      room.redoStack = [];
+
+      room.markModified("skribble");
+      await room.save();
+
+      io.to(roomId).emit("skribble:started", {
+        totalRounds,
+        roundTimeSeconds: room.skribble.roundTimeSeconds,
+        scores: room.skribble.scores,
+        playerOrder: shuffled
+      });
+
+      io.to(roomId).emit("board:clear");
+
+      // Start first round after a short delay
+      setTimeout(() => startSkribbleRound(roomId, io), 2000);
+    });
+
+    socket.on("skribble:pick-word", async ({ roomId, word }) => {
+      if (!roomId || !word) return;
+      const room = await Room.findOne({ roomId });
+      if (!room || room.skribble.status !== "picking") return;
+      if (room.skribble.drawerId !== socket.data.user.id) return;
+
+      // Clear the auto-pick timer
+      const timer = roomSkribbleTimers.get(roomId);
+      if (timer) { clearTimeout(timer); roomSkribbleTimers.delete(roomId); }
+
+      room.skribble.currentWord = word;
+      room.skribble.wordHint = makeWordHint(word);
+      room.skribble.status = "drawing";
+      room.skribble.roundStartedAt = new Date();
+      room.markModified("skribble");
+      await room.save();
+
+      // Notify everyone that drawing has started
+      io.to(roomId).emit("skribble:drawing-start", {
+        wordHint: room.skribble.wordHint,
+        drawerId: room.skribble.drawerId,
+        drawerName: room.skribble.drawerName,
+        roundTimeSeconds: room.skribble.roundTimeSeconds
+      });
+
+      // Send the chosen word back to the drawer
+      socket.emit("skribble:your-word", { word });
+
+      // Clear canvas for new round
+      io.to(roomId).emit("board:clear");
+
+      // Set round end timer
+      const roundEndTimer = setTimeout(() => {
+        endSkribbleRound(roomId, io);
+      }, room.skribble.roundTimeSeconds * 1000);
+      roomSkribbleTimers.set(roomId, roundEndTimer);
+    });
+
+    socket.on("skribble:guess", async ({ roomId, guess }) => {
+      if (!roomId || !guess) return;
+      const room = await Room.findOne({ roomId });
+      if (!room || room.skribble.status !== "drawing") return;
+      if (room.skribble.drawerId === socket.data.user.id) return; // drawer can't guess
+      if (room.skribble.guessedBy.includes(socket.data.user.id)) return; // already guessed
+
+      const isCorrect = guess.trim().toLowerCase() === room.skribble.currentWord.toLowerCase();
+
+      if (isCorrect) {
+        room.skribble.guessedBy.push(socket.data.user.id);
+
+        // Improved scoring system
+        const usersMap = getRoomUsers(roomId);
+        const totalGuessers = usersMap.size - 1; // exclude drawer
+        const guessOrder = room.skribble.guessedBy.length;
+        const roundTime = room.skribble.roundTimeSeconds || 60;
+        const elapsed = (Date.now() - new Date(room.skribble.roundStartedAt).getTime()) / 1000;
+        const timeRatio = Math.max(1 - elapsed / roundTime, 0); // 1.0 = instant, 0.0 = last second
+
+        // Base points: 150 for first guesser, decreasing by 20 per position (min 30)
+        const basePoints = Math.max(150 - (guessOrder - 1) * 20, 30);
+        // Time bonus: up to +100 extra for very fast guesses
+        const timeBonus = Math.round(timeRatio * 100);
+        const guesserPoints = basePoints + timeBonus;
+
+        // Drawer gets scaled reward: more if many guessed, bonus for early guesses
+        const drawerPoints = 15 + Math.round(timeRatio * 10);
+
+        // Update scores
+        const guesserScore = room.skribble.scores.find((s) => s.userId === socket.data.user.id);
+        if (guesserScore) guesserScore.points += guesserPoints;
+        const drawerScore = room.skribble.scores.find((s) => s.userId === room.skribble.drawerId);
+        if (drawerScore) drawerScore.points += drawerPoints;
+
+        room.markModified("skribble");
+        await room.save();
+
+        // Notify the guesser they were correct
+        socket.emit("skribble:correct", { points: guesserPoints });
+
+        // Notify room about the correct guess (without revealing the word)
+        io.to(roomId).emit("skribble:player-guessed", {
+          userId: socket.data.user.id,
+          name: socket.data.user.name,
+          guessedBy: room.skribble.guessedBy,
+          scores: room.skribble.scores
+        });
+
+        // Check if everyone has guessed
+        if (room.skribble.guessedBy.length >= totalGuessers) {
+          endSkribbleRound(roomId, io);
+        }
+      } else {
+        // Broadcast the wrong guess as a chat message (visible to all)
+        io.to(roomId).emit("chat:message", {
+          userId: socket.data.user.id,
+          name: socket.data.user.name,
+          text: guess
+        });
+      }
+    });
+
     socket.on("disconnect", () => {
       const roomId = socket.data.roomId;
       if (!roomId) return;
@@ -496,6 +829,8 @@ export const initSocket = (httpServer, corsOrigin) => {
         roomUsers.delete(roomId);
         roomScreenSharer.delete(roomId);
         roomVotes.delete(roomId);
+        const timer = roomSkribbleTimers.get(roomId);
+        if (timer) { clearTimeout(timer); roomSkribbleTimers.delete(roomId); }
       }
     });
   });

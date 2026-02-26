@@ -1090,3 +1090,120 @@ a:hover {
   margin-right: 0.2rem;
   vertical-align: middle;
 }
+
+/* ---------- MISSION SELECTOR (Dashboard) ---------- */
+.mission-selector-section {
+  position: relative;
+  z-index: 3;
+  margin-top: 1.5rem;
+}
+
+.section-label {
+  font-family: var(--font-heading);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 0.8rem;
+}
+
+.section-label::before {
+  content: '[ ';
+  opacity: 0.4;
+}
+.section-label::after {
+  content: ' ]';
+  opacity: 0.4;
+}
+
+.mission-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.mission-card {
+  padding: 1.2rem;
+  border-radius: 2px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mission-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--card-accent, var(--accent));
+  opacity: 0.5;
+  transition: opacity 0.3s;
+}
+
+.mission-card:hover::before {
+  opacity: 1;
+}
+
+.mission-card.selected {
+  border-color: var(--card-accent, var(--accent));
+  box-shadow: 0 0 25px color-mix(in srgb, var(--card-accent, var(--accent)) 20%, transparent),
+              inset 0 0 30px color-mix(in srgb, var(--card-accent, var(--accent)) 8%, transparent);
+}
+
+.mission-card.selected::before {
+  opacity: 1;
+  height: 3px;
+}
+
+.mission-card-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.mission-card-label {
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+
+.mission-card.selected .mission-card-label {
+  color: var(--card-accent, var(--accent));
+  text-shadow: 0 0 10px color-mix(in srgb, var(--card-accent, var(--accent)) 40%, transparent);
+}
+
+.mission-card-desc {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.mission-card-check {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--card-accent, var(--accent));
+  color: #000;
+  font-size: 0.7rem;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--card-accent, var(--accent)) 50%, transparent);
+}

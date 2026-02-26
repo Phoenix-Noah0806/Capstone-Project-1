@@ -24,6 +24,11 @@ const roomSchema = new mongoose.Schema(
   {
     roomId: { type: String, unique: true, index: true },
     host: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    missionType: {
+      type: String,
+      enum: ["free", "blind", "puzzle", "skribble"],
+      default: "free"
+    },
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     strokes: { type: [mongoose.Schema.Types.Mixed], default: [] },
     redoStack: { type: [mongoose.Schema.Types.Mixed], default: [] },
@@ -38,7 +43,7 @@ const roomSchema = new mongoose.Schema(
       },
       name: { type: String, default: "" },
       description: { type: String, default: "" },
-      type: { type: String, enum: ["free", "blind", "puzzle"], default: "free" },
+      type: { type: String, enum: ["free", "blind", "puzzle", "skribble"], default: "free" },
       timerSeconds: { type: Number, default: 0 },
       startedAt: { type: Date },
       progress: { type: Number, default: 0 }, // 0-100
@@ -55,6 +60,21 @@ const roomSchema = new mongoose.Schema(
         completed: { type: Boolean, default: false }
       },
       score: { type: Number, default: 0 }
+    },
+    skribble: {
+      status: { type: String, enum: ["idle", "picking", "drawing", "round-end", "game-end"], default: "idle" },
+      currentWord: { type: String, default: "" },
+      wordHint: { type: String, default: "" },
+      drawerId: { type: String, default: "" },
+      drawerName: { type: String, default: "" },
+      round: { type: Number, default: 0 },
+      totalRounds: { type: Number, default: 0 },
+      roundTimeSeconds: { type: Number, default: 60 },
+      roundStartedAt: { type: Date },
+      guessedBy: [{ type: String }],
+      playerOrder: [{ type: String }],
+      scores: { type: [mongoose.Schema.Types.Mixed], default: [] },
+      lastWord: { type: String, default: "" }
     },
     roles: [
       {

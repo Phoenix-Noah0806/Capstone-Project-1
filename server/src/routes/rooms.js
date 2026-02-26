@@ -7,6 +7,7 @@ const router = express.Router();
 
 router.post("/", authMiddleware, async (req, res) => {
   const userId = req.user.id;
+  const { missionType } = req.body || {};
   let roomId = generateRoomId();
   let exists = await Room.findOne({ roomId });
   while (exists) {
@@ -17,10 +18,11 @@ router.post("/", authMiddleware, async (req, res) => {
   const room = await Room.create({
     roomId,
     host: userId,
-    participants: [userId]
+    participants: [userId],
+    missionType: missionType || "free"
   });
 
-  return res.status(201).json({ roomId: room.roomId, role: "host" });
+  return res.status(201).json({ roomId: room.roomId, role: "host", missionType: room.missionType });
 });
 
 router.post("/join", authMiddleware, async (req, res) => {

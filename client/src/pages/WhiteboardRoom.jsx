@@ -18,6 +18,7 @@ import ConfettiOverlay from "../components/gamify/ConfettiOverlay";
 import XPPopup from "../components/gamify/XPPopup";
 import MissionStartOverlay from "../components/gamify/MissionStartOverlay";
 import RoleAssignmentModal from "../components/gamify/RoleAssignmentModal";
+import SkribbleOverlay from "../components/gamify/SkribbleOverlay";
 import MathOverlay from "../components/MathOverlay";
 
 const STUN_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
@@ -69,6 +70,11 @@ const WhiteboardRoom = () => {
   const [selectedIdx, setSelectedIdx] = useState(null);
   const [dragStart, setDragStart] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [missionType, setMissionType] = useState("free");
+  const [skribbleState, setSkribbleState] = useState({ status: "idle", scores: [] });
+  const [skribbleWordChoices, setSkribbleWordChoices] = useState([]);
+  const [skribbleSecretWord, setSkribbleSecretWord] = useState("");
+  const [skribbleCorrectFlash, setSkribbleCorrectFlash] = useState(null);
 
   const token = useMemo(() => getToken(), []);
   const isShape = SHAPE_TOOLS.includes(tool);
@@ -116,6 +122,8 @@ const WhiteboardRoom = () => {
       setScreenSharerSocketId(payload.screenSharerSocketId || null);
       // Don't auto-connect here — connection will be initiated when
       // the participant opens the Live Feed modal (see liveFeedOpen effect).
+      if (payload.missionType) setMissionType(payload.missionType);
+      if (payload.skribble) setSkribbleState(payload.skribble);
       gameActions.setFromSocket({
         mission: payload.mission,
         roles: payload.roles,
@@ -249,6 +257,80 @@ const WhiteboardRoom = () => {
       if (candidate) {
         await peer.addIceCandidate(candidate);
       }
+    });
+
+    /* --- Skribble events --- */
+    socket.on("skribble:error", ({ message }) => {
+      alert(message || "Skribble error");
+    });
+
+    socket.on("skribble:started", (payload) => {
+      setSkribbleState((prev) => ({ ...prev, ...payload, status: "idle" }));
+      setSkribbleWordChoices([]);
+      setSkribbleSecretWord("");
+    });
+
+    socket.on("skribble:new-round", (payload) => {
+      setSkribbleState((prev) => ({ ...prev, ...payload }));
+      setSkribbleWordChoices([]);
+      setSkribbleSecretWord("");
+      setSkribbleCorrectFlash(null);
+    });
+
+    socket.on("skribble:pick-word", ({ wordChoices }) => {
+      setSkribbleWordChoices(wordChoices || []);
+    });
+
+    socket.on("skribble:drawing-start", (payload) => {
+      setSkribbleState((prev) => ({
+        ...prev,
+        ...payload,
+        status: "drawing",
+        guessedBy: [],
+        roundStartedAt: new Date().toISOString()
+      }));
+      setSkribbleWordChoices([]);
+    });
+
+    socket.on("skribble:your-word", ({ word }) => {
+      setSkribbleSecretWord(word);
+    });
+
+    socket.on("skribble:correct", ({ points }) => {
+      setSkribbleCorrectFlash({ points });
+      setTimeout(() => setSkribbleCorrectFlash(null), 2000);
+    });
+
+    socket.on("skribble:player-guessed", (payload) => {
+      setSkribbleState((prev) => ({
+        ...prev,
+        guessedBy: payload.guessedBy,
+        scores: payload.scores
+      }));
+    });
+
+    socket.on("skribble:round-end", (payload) => {
+      setSkribbleState((prev) => ({
+        ...prev,
+        status: "round-end",
+        lastWord: payload.word,
+        scores: payload.scores,
+        guessedBy: payload.guessedBy,
+        round: payload.round,
+        totalRounds: payload.totalRounds
+      }));
+      setSkribbleSecretWord("");
+    });
+
+    socket.on("skribble:game-end", (payload) => {
+      setSkribbleState((prev) => ({
+        ...prev,
+        status: "game-end",
+        scores: payload.scores,
+        lastWord: payload.lastWord
+      }));
+      setSkribbleSecretWord("");
+      gameActions.triggerConfetti(true);
     });
 
     return () => {
@@ -466,10 +548,14 @@ const WhiteboardRoom = () => {
   };
 
   const getPoint = (event) => {
-    const rect = canvasRef.current.getBoundingClientRect();
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    // Account for scale difference between internal canvas dims and CSS display size
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY
     };
   };
 
@@ -519,6 +605,14 @@ const WhiteboardRoom = () => {
   };
 
   const handlePointerDown = (event) => {
+    // Block drawing for non-drawers during Skribble drawing phase
+    if (
+      missionType === "skribble" &&
+      skribbleState.status === "drawing" &&
+      skribbleState.drawerId !== user?.id
+    ) {
+      return;
+    }
     const point = getPoint(event);
 
     // Selection tool: pick topmost stroke/shape and start drag
@@ -707,7 +801,27 @@ const WhiteboardRoom = () => {
   };
 
   const handleSendMessage = (text) => {
-    socketRef.current?.emit("chat:send", { roomId, text });
+    // During Skribble drawing phase, intercept messages as guesses
+    const isSkribbleDrawing = missionType === "skribble" && skribbleState.status === "drawing";
+    const isDrawer = skribbleState.drawerId === user?.id;
+    if (isSkribbleDrawing && !isDrawer) {
+      socketRef.current?.emit("skribble:guess", { roomId, guess: text });
+    } else {
+      socketRef.current?.emit("chat:send", { roomId, text });
+    }
+  };
+
+  /* --- Skribble Handlers --- */
+  const handleSkribbleStart = (roundTimeSeconds, roundCount) => {
+    socketRef.current?.emit("skribble:start", { roomId, roundTimeSeconds, roundCount });
+  };
+
+  const handleSkribblePickWord = (word) => {
+    socketRef.current?.emit("skribble:pick-word", { roomId, word });
+  };
+
+  const handleSkribbleGuess = (guess) => {
+    socketRef.current?.emit("skribble:guess", { roomId, guess });
   };
 
   const handleReaction = (emoji) => {
@@ -967,24 +1081,32 @@ const WhiteboardRoom = () => {
         />
       </div>
       <div className="room-footer">
-        <MissionPanel
-          mission={gameState.mission}
-          onStart={handleMissionStart}
-          onAdvance={handleMissionAdvance}
-          onComplete={handleMissionComplete}
-          onPuzzleSubmit={handlePuzzleSubmit}
-          isHost={role === "host"}
-          timeLeft={timeLeft}
-        />
-        <VotingPanel onVote={handleVote} voteTally={gameState.voteTally} />
-        {/* Host screen share controls (compact, in footer) */}
-        <ScreenSharePanel
-          isSharing={isSharing}
-          isViewing={false}
-          onStart={startScreenShare}
-          onStop={stopScreenShare}
-          stream={isSharing ? localStreamRef.current : null}
-        />
+        {/* Hide mission/voting/screen panels in Skribble mode — game mode was chosen on Dashboard */}
+        {missionType !== "skribble" && (
+          <>
+            <MissionPanel
+              mission={gameState.mission}
+              onStart={handleMissionStart}
+              onAdvance={handleMissionAdvance}
+              onComplete={handleMissionComplete}
+              onPuzzleSubmit={handlePuzzleSubmit}
+              isHost={role === "host"}
+              timeLeft={timeLeft}
+              roomMissionType={missionType}
+            />
+            {missionType === "free" && (
+              <VotingPanel onVote={handleVote} voteTally={gameState.voteTally} />
+            )}
+            {/* Host screen share controls (compact, in footer) */}
+            <ScreenSharePanel
+              isSharing={isSharing}
+              isViewing={false}
+              onStart={startScreenShare}
+              onStop={stopScreenShare}
+              stream={isSharing ? localStreamRef.current : null}
+            />
+          </>
+        )}
         <div className="theme-toggle">
           <span>{userRole.toUpperCase()}</span>
           {userRole === "architect" && (
@@ -1030,6 +1152,22 @@ const WhiteboardRoom = () => {
       />
       <ConfettiOverlay active={gameState.confettiActive} />
       <XPPopup popups={gameState.xpPopups} />
+
+      {/* Skribble Overlay */}
+      {missionType === "skribble" && (
+        <SkribbleOverlay
+          skribble={skribbleState}
+          userId={user?.id}
+          isHost={role === "host"}
+          onStart={handleSkribbleStart}
+          onPickWord={handleSkribblePickWord}
+          onGuess={handleSkribbleGuess}
+          wordChoices={skribbleWordChoices}
+          secretWord={skribbleSecretWord}
+          correctFlash={skribbleCorrectFlash}
+          users={users}
+        />
+      )}
     </div>
   );
 };
