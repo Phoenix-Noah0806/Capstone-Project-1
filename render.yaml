@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: whiteboard-api
+    env: node
+    rootDir: server
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm run start
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
+
