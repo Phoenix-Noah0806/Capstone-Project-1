@@ -1,16 +1,20 @@
-﻿import { useRef, useEffect } from "react";
+﻿import { useRef, useEffect, useState } from "react";
 
-const ScreenSharePanel = ({ isSharing, isViewing, onStart, onStop, stream, onClose }) => {
+const ScreenSharePanel = ({ isSharing, isViewing, onStart, onStop, stream, onClose, onRetry }) => {
   const videoRef = useRef(null);
+  const [videoError, setVideoError] = useState(false);
 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      setVideoError(false);
     }
   }, [stream]);
 
   // When actively viewing, render a floating modal window
   if (isViewing) {
+    const hasActiveStream = stream && stream.active && stream.getTracks().some(t => t.readyState === "live");
+
     return (
       <div className="live-feed-modal-overlay" onClick={onClose}>
         <div className="live-feed-modal" onClick={(e) => e.stopPropagation()}>
@@ -24,18 +28,41 @@ const ScreenSharePanel = ({ isSharing, isViewing, onStart, onStop, stream, onClo
             </button>
           </div>
           <div className="live-feed-modal-body">
-            {stream ? (
+            {hasActiveStream && !videoError ? (
               <video
                 ref={videoRef}
                 className="live-feed-video"
                 autoPlay
                 playsInline
                 muted={false}
+                onError={() => setVideoError(true)}
               />
             ) : (
               <div className="live-feed-connecting">
-                <div className="live-feed-spinner" />
-                <span>Establishing secure uplink...</span>
+                {videoError ? (
+                  <>
+                    <span>⚠️ Video feed interrupted</span>
+                    {onRetry && (
+                      <button className="btn" onClick={onRetry} style={{ marginTop: "12px" }}>
+                        🔄 Reconnect
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="live-feed-spinner" />
+                    <span>Establishing secure uplink...</span>
+                    {onRetry && (
+                      <button
+                        className="btn"
+                        onClick={onRetry}
+                        style={{ marginTop: "12px", fontSize: "0.8em" }}
+                      >
+                        🔄 Retry Connection
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             )}
             {/* Corner brackets */}

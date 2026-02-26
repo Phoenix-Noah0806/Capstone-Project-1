@@ -39,6 +39,7 @@ const WhiteboardRoom = () => {
   const socketRef = useRef(null);
   const peersRef = useRef(new Map());
   const localStreamRef = useRef(null);
+  const inboundStreamRef = useRef(null);
 
   const [role, setRole] = useState("participant");
   const [users, setUsers] = useState([]);
@@ -67,6 +68,7 @@ const WhiteboardRoom = () => {
   const [liveFeedOpen, setLiveFeedOpen] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(null);
   const [dragStart, setDragStart] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const token = useMemo(() => getToken(), []);
   const isShape = SHAPE_TOOLS.includes(tool);
@@ -112,9 +114,8 @@ const WhiteboardRoom = () => {
       setRedoStack(payload.redoStack || []);
       setScreenSharerId(payload.screenSharerId || null);
       setScreenSharerSocketId(payload.screenSharerSocketId || null);
-      if (payload.screenSharerId && payload.screenSharerSocketId && payload.screenSharerId !== user.id) {
-        requestScreenConnectionDirect(payload.screenSharerSocketId);
-      }
+      // Don't auto-connect here — connection will be initiated when
+      // the participant opens the Live Feed modal (see liveFeedOpen effect).
       gameActions.setFromSocket({
         mission: payload.mission,
         roles: payload.roles,
@@ -133,7 +134,11 @@ const WhiteboardRoom = () => {
     });
 
     socket.on("stroke:commit", (stroke) => {
-      setStrokes((prev) => [...prev, stroke]);
+      setStrokes((prev) => {
+        const next = [...prev, stroke];
+        redraw(next); // ensure shapes (and other strokes) render for remote viewers
+        return next;
+      });
     });
 
     socket.on("board:state", ({ strokes: nextStrokes, redoStack: nextRedo }) => {
@@ -205,9 +210,7 @@ const WhiteboardRoom = () => {
     socket.on("screen:started", ({ sharerId, sharerSocketId }) => {
       setScreenSharerId(sharerId);
       setScreenSharerSocketId(sharerSocketId);
-      if (sharerId !== user.id && sharerSocketId) {
-        requestScreenConnectionDirect(sharerSocketId);
-      }
+      // Don't auto-connect here — wait until participant opens the live feed modal.
     });
 
     socket.on("screen:stopped", () => {
@@ -215,13 +218,20 @@ const WhiteboardRoom = () => {
       setScreenSharerSocketId(null);
       closeAllPeers();
       setRemoteStream(null);
+      inboundStreamRef.current = null;
     });
 
     socket.on("webrtc:offer", async ({ fromSocketId, sdp }) => {
       if (!localStreamRef.current) return;
+      // Clean up any existing peer for this socket before creating a new one
+      const existingPeer = peersRef.current.get(fromSocketId);
+      if (existingPeer) {
+        existingPeer.close();
+        peersRef.current.delete(fromSocketId);
+      }
       const peer = createPeer(fromSocketId, true);
       localStreamRef.current.getTracks().forEach((track) => peer.addTrack(track, localStreamRef.current));
-      await peer.setRemoteDescription(sdp);
+      await peer.setRemoteDescription(new RTCSessionDescription(sdp));
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
       socket.emit("webrtc:answer", { targetSocketId: fromSocketId, sdp: peer.localDescription });
@@ -245,6 +255,17 @@ const WhiteboardRoom = () => {
       socket.disconnect();
     };
   }, [roomId, user, token]);
+
+  useEffect(() => {
+    if (
+      liveFeedOpen &&
+      screenSharerId &&
+      screenSharerId !== user?.id &&
+      screenSharerSocketId
+    ) {
+      requestScreenConnectionDirect(screenSharerSocketId);
+    }
+  }, [liveFeedOpen, screenSharerId, screenSharerSocketId, user]);
 
   // Canvas resize — only on mount and window resize, NOT on strokes change
   const strokesRef = useRef(strokes);
@@ -452,7 +473,7 @@ const WhiteboardRoom = () => {
     };
   };
 
-  /* --- Hit-test helpers for select tool --- */
+  /* --- Hit-test helpers for selecting strokes/shapes --- */
   const distToSegment = (px, py, ax, ay, bx, by) => {
     const dx = bx - ax, dy = by - ay;
     const lenSq = dx * dx + dy * dy;
@@ -500,27 +521,30 @@ const WhiteboardRoom = () => {
   const handlePointerDown = (event) => {
     const point = getPoint(event);
 
-    // Select tool
+    // Selection tool: pick topmost stroke/shape and start drag
     if (tool === "select") {
-      // Search strokes from top to bottom
       for (let i = strokes.length - 1; i >= 0; i--) {
         if (hitTestStroke(point, strokes[i])) {
           setSelectedIdx(i);
           setDragStart(point);
-          setIsDrawing(true);
+          setIsDrawing(true); // reuse isDrawing to track drag state
+          setIsDragging(true);
           return;
         }
       }
       setSelectedIdx(null);
+      setIsDragging(false);
       return;
     }
 
+    // Drawing a shape
     if (isShape) {
       setShapeStart(point);
       setIsDrawing(true);
       return;
     }
 
+    // Freehand draw start
     setIsDrawing(true);
     const stroke = {
       tool,
@@ -538,21 +562,21 @@ const WhiteboardRoom = () => {
       cursor: { x: point.x, y: point.y, userId: user.id, name: user.name, laser: laserMode }
     });
 
-    if (!isDrawing) return;
-
-    // Dragging selected stroke
-    if (tool === "select" && selectedIdx !== null && dragStart) {
+    // Dragging selected stroke/shape (selection tool)
+    if (tool === "select" && isDragging && selectedIdx !== null && dragStart && event.buttons === 1) {
       const dx = point.x - dragStart.x;
       const dy = point.y - dragStart.y;
       setStrokes((prev) => {
         const next = [...prev];
         next[selectedIdx] = offsetStroke(prev[selectedIdx], dx, dy);
+        redraw(next);
         return next;
       });
       setDragStart(point);
-      redraw(strokes);
       return;
     }
+
+    if (!isDrawing) return;
 
     if (isShape && shapeStart) {
       clearPreview();
@@ -580,11 +604,11 @@ const WhiteboardRoom = () => {
   const finishStroke = (event) => {
     if (!isDrawing) return;
 
-    // Finish select drag — sync moved stroke to server
-    if (tool === "select" && selectedIdx !== null) {
+    // Finish drag — sync moved stroke to server
+    if (tool === "select" && isDragging && selectedIdx !== null) {
+      setIsDragging(false);
       setIsDrawing(false);
       setDragStart(null);
-      // Emit the full updated strokes array to persist
       socketRef.current?.emit("stroke:move", { roomId, strokes });
       redraw(strokes);
       return;
@@ -615,10 +639,17 @@ const WhiteboardRoom = () => {
 
     if (!currentStroke) return;
     setIsDrawing(false);
+    // Ignore tap-only strokes (prevents tiny dots when double-clicking to select)
+    if (currentStroke.points.length < 2) {
+      setCurrentStroke(null);
+      return;
+    }
     socketRef.current?.emit("stroke:commit", { roomId, stroke: currentStroke });
     setStrokes((prev) => [...prev, currentStroke]);
     setCurrentStroke(null);
   };
+
+  // (native double-click handled in handlePointerDown via event.detail)
 
   const handleMathSolve = (equation, answer) => {
     const canvas = canvasRef.current;
@@ -755,8 +786,23 @@ const WhiteboardRoom = () => {
 
     if (!isSharer) {
       peer.ontrack = (event) => {
-        const [stream] = event.streams;
-        setRemoteStream(stream);
+        const [stream] = event.streams || [];
+        if (stream) {
+          setRemoteStream(stream);
+          inboundStreamRef.current = stream;
+        } else {
+          // Some browsers fire ontrack without streams; build one manually.
+          const inbound = inboundStreamRef.current || new MediaStream();
+          inboundStreamRef.current = inbound;
+          inbound.addTrack(event.track);
+          setRemoteStream(inbound);
+        }
+      };
+      peer.onconnectionstatechange = () => {
+        if (peer.connectionState === "failed" || peer.connectionState === "disconnected") {
+          setRemoteStream(null);
+          inboundStreamRef.current = null;
+        }
       };
     }
 
@@ -772,7 +818,13 @@ const WhiteboardRoom = () => {
       existingPeer.close();
       peersRef.current.delete(targetSocketId);
     }
+    // Reset remote stream state so the UI shows the connecting indicator
+    setRemoteStream(null);
+    inboundStreamRef.current = null;
     const peer = createPeer(targetSocketId, false);
+    // Add a recvonly video transceiver so the offer SDP contains m=video lines;
+    // without this the host's video track cannot be negotiated.
+    peer.addTransceiver("video", { direction: "recvonly" });
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
     socketRef.current?.emit("webrtc:offer", {
@@ -815,6 +867,7 @@ const WhiteboardRoom = () => {
     closeAllPeers();
     setRemoteStream(null);
     setScreenSharerSocketId(null);
+    inboundStreamRef.current = null;
   };
 
   useEffect(() => {
@@ -849,14 +902,14 @@ const WhiteboardRoom = () => {
           mathMode={mathMode}
           setMathMode={setMathMode}
         />
-        <div className={`canvas-area ${isDrawing ? "drawing-active" : ""} ${tool === "select" ? "select-mode" : ""}`} ref={containerRef}>
+        <div className={`canvas-area ${isDrawing ? "drawing-active" : ""}`} ref={containerRef}>
           <canvas
-            ref={canvasRef}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={finishStroke}
-            onPointerLeave={() => finishStroke(null)}
-          />
+        ref={canvasRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishStroke}
+        onPointerLeave={() => finishStroke(null)}
+      />
           {/* Preview canvas for shape drawing */}
           <canvas
             ref={previewCanvasRef}
@@ -894,6 +947,7 @@ const WhiteboardRoom = () => {
               onStop={stopScreenShare}
               stream={remoteStream}
               onClose={() => setLiveFeedOpen(false)}
+              onRetry={() => screenSharerSocketId && requestScreenConnectionDirect(screenSharerSocketId)}
             />
           )}
         </div>
