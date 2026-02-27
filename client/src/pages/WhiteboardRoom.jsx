@@ -349,7 +349,7 @@ const WhiteboardRoom = () => {
     }
   }, [liveFeedOpen, screenSharerId, screenSharerSocketId, user]);
 
-  // Canvas resize — only on mount and window resize, NOT on strokes change
+  // Canvas resize — keep canvas matched to container size
   const strokesRef = useRef(strokes);
   strokesRef.current = strokes;
 
@@ -360,6 +360,8 @@ const WhiteboardRoom = () => {
       const container = containerRef.current;
       if (!canvas || !container) return;
       const rect = container.getBoundingClientRect();
+      // Skip if container has zero dimensions (not yet laid out)
+      if (rect.width === 0 || rect.height === 0) return;
       canvas.width = rect.width;
       canvas.height = rect.height;
       if (preview) {
@@ -368,10 +370,35 @@ const WhiteboardRoom = () => {
       }
       redraw(strokesRef.current);
     };
-    resize();
+    // Run after layout paints — retry to handle late layout settle
+    requestAnimationFrame(() => {
+      resize();
+      // Second attempt after another frame for layout settle
+      requestAnimationFrame(resize);
+    });
+
+    // Respond to any container size change (including flex/layout shifts)
+    let observer;
+    const attachObserver = () => {
+      if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+        observer = new ResizeObserver(() => resize());
+        observer.observe(containerRef.current);
+      }
+    };
+    // Attach immediately if ref is ready, otherwise retry next frame
+    if (containerRef.current) {
+      attachObserver();
+    } else {
+      requestAnimationFrame(attachObserver);
+    }
+
+    // Fallback: also listen to window resize
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, []);
+    return () => {
+      window.removeEventListener("resize", resize);
+      if (observer) observer.disconnect();
+    };
+  }, [missionType]);
 
   useEffect(() => {
     const interval = setInterval(() => {

@@ -15,6 +15,12 @@ const missionTypes = [
   { id: "puzzle", label: "Artifact Rush", desc: "Reconstruct fragmented data as a squad" }
 ];
 
+const sectorLabel = (partIndex, cols = 3) => {
+  const row = Math.floor(partIndex / cols);
+  const col = partIndex % cols;
+  return `${String.fromCharCode(65 + row)}${col + 1}`;
+};
+
 const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit, isHost, timeLeft, roomMissionType }) => {
   const { user } = useAuth();
   // Lock to the room's mission type if it's a specific mode (blind/puzzle), otherwise allow free selection
@@ -68,7 +74,17 @@ const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit,
           {mission.type === "puzzle" && puzzlePart && (
             <div className="sector-box">
               <div className="label">Your Sector</div>
-              <div className="sector-id">Sector {String.fromCharCode(65 + Math.floor(puzzlePart.partIndex / 3))}{ (puzzlePart.partIndex % 3) + 1}</div>
+              <div className="sector-id">
+                Sector {sectorLabel(puzzlePart.partIndex, mission.puzzle?.target?.cols || 3)}
+              </div>
+              {mission.puzzle?.target?.imageUrl && (
+                <div className="target-preview">
+                  <img src={mission.puzzle.target.imageUrl} alt={mission.puzzle.target.name || "Target reference"} />
+                  <div className="hint-text">
+                    Recreate your slice of the target. Use the grid label to align your drawing.
+                  </div>
+                </div>
+              )}
               {!puzzlePart.delivered && (
                 <button className="btn small primary" style={{ marginTop: "0.4rem" }} onClick={onPuzzleSubmit}>
                   🚀 Submit Sector
@@ -140,4 +156,3 @@ const MissionPanel = ({ mission, onStart, onAdvance, onComplete, onPuzzleSubmit,
 };
 
 export default MissionPanel;
-

@@ -288,6 +288,7 @@ export const initSocket = (httpServer, corsOrigin) => {
 
       let hintHolders = mission.hintHolders || [];
       let puzzleParts = [];
+      let puzzleTarget = null;
 
       if (mission.type === "blind") {
         const analysts = room.roles
@@ -306,11 +307,24 @@ export const initSocket = (httpServer, corsOrigin) => {
       if (mission.type === "puzzle") {
         const usersMap = getRoomUsers(roomId);
         const userIds = Array.from(usersMap.keys());
+        const cols = 3;
+        const rows = 3;
+
+        puzzleTarget = {
+          name: "HexaDrone Logo",
+          imageUrl: "/puzzles/hexadrone-grid.svg",
+          cols,
+          rows
+        };
+
         puzzleParts = userIds.map((uid, index) => ({
           userId: uid,
           partIndex: index,
           delivered: false
         }));
+
+        room.mission.description =
+          mission.description || "Recreate the HexaDrone logo using your assigned sector.";
       }
 
       room.mission = {
@@ -323,7 +337,7 @@ export const initSocket = (httpServer, corsOrigin) => {
         progress: 0,
         stage: 1,
         hintHolders,
-        puzzle: { parts: puzzleParts, completed: false },
+        puzzle: { target: puzzleTarget, parts: puzzleParts, completed: false },
         score: 0
       };
       // Reset votes on new mission

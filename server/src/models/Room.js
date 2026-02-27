@@ -50,6 +50,12 @@ const roomSchema = new mongoose.Schema(
       stage: { type: Number, default: 0 },
       hintHolders: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
       puzzle: {
+        target: {
+          name: { type: String, default: "" },
+          imageUrl: { type: String, default: "" },
+          cols: { type: Number, default: 3 },
+          rows: { type: Number, default: 3 }
+        },
         parts: [
           {
             userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

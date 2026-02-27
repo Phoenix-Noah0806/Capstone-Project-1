@@ -796,6 +796,21 @@
   gap: 0.2rem;
 }
 
+.target-preview {
+  margin-top: 0.35rem;
+  padding: 0.45rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.target-preview img {
+  width: 100%;
+  display: block;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
 .hint-box .label, .sector-box .label {
   font-family: var(--font-heading);
   font-size: 0.5rem;
