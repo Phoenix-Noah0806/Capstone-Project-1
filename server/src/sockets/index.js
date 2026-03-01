@@ -47,9 +47,20 @@ const getRoomUsers = (roomId) => {
 export const initSocket = (httpServer, corsOrigin) => {
   const io = new Server(httpServer, {
     cors: {
-      origin: corsOrigin || "*",
+      origin: (origin, cb) => {
+        if (
+          !origin ||
+          origin === corsOrigin ||
+          origin.includes("vercel.app") ||
+          /^http:\/\/localhost(:\d+)?$/.test(origin)
+        ) {
+          cb(null, true);
+        } else {
+          cb(new Error("CORS not allowed"));
+        }
+      },
       methods: ["GET", "POST"],
-      credentials: false
+      credentials: true
     }
   });
 
