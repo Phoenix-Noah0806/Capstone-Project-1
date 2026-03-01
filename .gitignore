@@ -8,4 +8,4 @@ dist
 server/.env
 client/.env
 .env
-
+server/.env.example
